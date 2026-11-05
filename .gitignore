@@ -1,0 +1,20 @@
+.DS_Store
+.superpowers/
+.claude/settings.local.json
+
+# iOS
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+ios/Secrets.xcconfig
+
+# Android
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
