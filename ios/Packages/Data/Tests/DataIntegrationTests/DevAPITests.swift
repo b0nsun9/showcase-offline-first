@@ -3,7 +3,8 @@ import Foundation
 import Testing
 @testable import Data
 
-private let key = ProcessInfo.processInfo.environment["SHOWCASE_DEV_API_KEY"]
+// Fork PRs get an empty secret, so empty counts as unset.
+private let key = ProcessInfo.processInfo.environment["SHOWCASE_DEV_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
 
 @Suite(.enabled(if: key != nil)) struct DevAPITests {
     func client() -> APIClient {

@@ -75,4 +75,9 @@ import Testing
         await #expect(throws: APIFailure.missingKey) { _ = try await client(key: "").listJobs() }
         #expect(StubURLProtocol.requests.isEmpty)
     }
+
+    @Test func undecodableSuccessBodyIsTransport() async {
+        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data("<html>Sign in to Wi-Fi</html>".utf8)))
+        await #expect(throws: APIFailure.transport) { _ = try await client().listJobs() }
+    }
 }

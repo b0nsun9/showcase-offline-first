@@ -64,7 +64,7 @@ struct APIClient: APIClienting {
 
     private func decode<T: Decodable>(_ data: Data) throws -> T {
         do { return try JSONDecoder().decode(T.self, from: data) } catch {
-            throw APIFailure.http(status: 200, code: "bad_body", retryAfter: nil)
+            throw APIFailure.transport // e.g. captive-portal HTML: retry, the idempotency key makes it safe
         }
     }
 
