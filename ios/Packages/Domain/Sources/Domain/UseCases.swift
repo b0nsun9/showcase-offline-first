@@ -43,6 +43,7 @@ public struct CompleteJob: Sendable {
         guard let job = try await repository.job(id: jobID) else { throw JobError.unknownJob }
         guard job.completedAt == nil else { throw JobError.alreadyCompleted }
         guard job.photo != nil else { throw JobError.photoMissing }
+        guard (job.note?.utf16.count ?? 0) <= Job.noteLimit else { throw JobError.noteTooLong }
         try await repository.complete(jobID: jobID, completedAt: now())
     }
 }

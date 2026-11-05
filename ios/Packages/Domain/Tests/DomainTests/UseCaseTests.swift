@@ -12,14 +12,20 @@ import Testing
     }
 
     @Test func noteLimitCountsUTF16() async throws {
-        let fake = FakeJobRepository(jobs: [.make(photo: somePhoto)])
-        let save = SaveNote(repository: fake)
-        try await save(jobID: "job-1", note: String(repeating: "👍", count: 500))
-        try await CompleteJob(repository: fake)(jobID: "job-1")
-        #expect(fake.completeCalls.count == 1)
-        await #expect(throws: JobError.noteTooLong) {
-            try await save(jobID: "job-1", note: String(repeating: "👍", count: 501))
-        }
+        let thumbs500 = String(repeating: "👍", count: 500)
+        let thumbs501 = String(repeating: "👍", count: 501)
+
+        let ok = FakeJobRepository(jobs: [.make(photo: somePhoto, note: thumbs500)])
+        try await CompleteJob(repository: ok)(jobID: "job-1")
+        #expect(ok.completeCalls.count == 1)
+
+        let tooLong = FakeJobRepository(jobs: [.make(photo: somePhoto, note: thumbs501)])
+        await #expect(throws: JobError.noteTooLong) { try await CompleteJob(repository: tooLong)(jobID: "job-1") }
+        #expect(tooLong.completeCalls.isEmpty)
+
+        let save = SaveNote(repository: ok)
+        try await save(jobID: "job-1", note: thumbs500)
+        await #expect(throws: JobError.noteTooLong) { try await save(jobID: "job-1", note: thumbs501) }
     }
 
     @Test func completeTwiceThrowsAlreadyCompleted() async {
