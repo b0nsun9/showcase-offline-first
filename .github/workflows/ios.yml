@@ -1,0 +1,17 @@
+name: iOS
+
+on:
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  push:
+    branches: [develop, main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+
+jobs:
+  domain:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_27.2.app
+      - run: ios/scripts/check-domain-imports.sh
+      - run: swift test --package-path ios/Packages/Domain
