@@ -25,7 +25,10 @@ final class JobStore: @unchecked Sendable {
         try coordinator.addPersistentStore(
             ofType: NSSQLiteStoreType, configurationName: nil,
             at: storeURL ?? URL(fileURLWithPath: "/dev/null"),
-            options: [NSMigratePersistentStoresAutomaticallyOption: true, NSInferMappingModelAutomaticallyOption: true])
+            options: [
+                NSMigratePersistentStoresAutomaticallyOption: true, NSInferMappingModelAutomaticallyOption: true,
+                NSSQLitePragmasOption: ["synchronous": "FULL"], // a completion must survive a sudden power loss
+            ])
         context = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
         context.persistentStoreCoordinator = coordinator
     }
@@ -67,7 +70,7 @@ final class JobStore: @unchecked Sendable {
     // MARK: Job writes
 
     func apply(server: [Job]) async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             let merged = JobMerge.merge(local: try loadJobs(), server: server)
             let serverByID = Dictionary(server.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let keep = Set(merged.map(\.id))
@@ -84,9 +87,9 @@ final class JobStore: @unchecked Sendable {
     }
 
     func savePhoto(jobID: String, jpeg: Data) async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             guard let entity = try fetchJob(jobID) else { throw JobError.unknownJob }
-            guard (entity.value(forKey: "photoBytes") as? Int64 ?? 0) == 0 else { throw JobError.photoAlreadyTaken }
+            guard entity.value(forKey: "photo") == nil else { throw JobError.photoAlreadyTaken }
             guard jpeg.count <= Job.photoByteLimit else { throw JobError.photoTooLarge }
             entity.setValue(jpeg, forKey: "photo")
             entity.setValue(Int64(jpeg.count), forKey: "photoBytes")
@@ -96,7 +99,7 @@ final class JobStore: @unchecked Sendable {
     }
 
     func saveNote(jobID: String, note: String?) async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             guard let entity = try fetchJob(jobID) else { throw JobError.unknownJob }
             guard entity.value(forKey: "completedAt") == nil else { throw JobError.alreadyCompleted }
             guard (note?.utf16.count ?? 0) <= Job.noteLimit else { throw JobError.noteTooLong }
@@ -107,10 +110,10 @@ final class JobStore: @unchecked Sendable {
 
     /// One perform, one save: the job, the frozen body and both queue items land together or not at all.
     func complete(jobID: String, completedAt: Date, idempotencyKey: String) async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             guard let entity = try fetchJob(jobID) else { throw JobError.unknownJob }
             guard entity.value(forKey: "completedAt") == nil else { throw JobError.alreadyCompleted }
-            guard (entity.value(forKey: "photoBytes") as? Int64 ?? 0) > 0 else { throw JobError.photoMissing }
+            guard entity.value(forKey: "photo") != nil else { throw JobError.photoMissing }
             entity.setValue(completedAt, forKey: "completedAt")
             let body = CompletionBody.encode(completedAt: completedAt, note: entity.value(forKey: "note") as? String)
             let last = try context.fetch(outboxRequest(nil, sort: false, limit: 1, descending: true)).first
@@ -133,7 +136,7 @@ final class JobStore: @unchecked Sendable {
     // MARK: Queue writes
 
     func finish(_ item: OutboxItem, serverJob: Job?) async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             if let row = try fetchRow(item.id) { context.delete(row) }
             if let serverJob, let entity = try fetchJob(serverJob.id) {
                 write(serverJob, position: Int(entity.value(forKey: "position") as? Int16 ?? 0), to: entity)
@@ -152,7 +155,7 @@ final class JobStore: @unchecked Sendable {
     }
 
     func clearBackoffWaits() async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             for row in try context.fetch(outboxRequest("waitIsBackoff == YES")) {
                 row.setValue(nil, forKey: "nextAttemptAt")
                 row.setValue(false, forKey: "waitIsBackoff")
@@ -166,7 +169,7 @@ final class JobStore: @unchecked Sendable {
     }
 
     func recordPhotoMismatch(_ item: OutboxItem) async throws -> Int {
-        try await context.perform { [self] in
+        try await transact { [self] in
             guard let row = try fetchRow(item.id) else { return item.photoMismatches }
             let count = (row.value(forKey: "photoMismatches") as? Int32 ?? 0) + 1
             row.setValue(count, forKey: "photoMismatches")
@@ -178,15 +181,22 @@ final class JobStore: @unchecked Sendable {
     // MARK: Helpers (call only inside `context.perform`)
 
     private func update(_ item: OutboxItem, _ change: @escaping @Sendable (NSManagedObject) -> Void) async throws {
-        try await context.perform { [self] in
+        try await transact { [self] in
             guard let row = try fetchRow(item.id) else { return }
             change(row)
             try save()
         }
     }
 
+    /// A write that throws anywhere, not only in `save()`, leaves nothing pending in the long-lived context.
+    private func transact<T>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await context.perform { [self] in
+            do { return try body() } catch { context.rollback(); throw error }
+        }
+    }
+
     private func save() throws {
-        try context.save()
+        do { try context.save() } catch { context.rollback(); throw error }
         lock.lock(); let current = Array(listeners.values); lock.unlock()
         current.forEach { $0.yield() }
     }
@@ -248,8 +258,11 @@ final class JobStore: @unchecked Sendable {
         e.setValue(Int16(position), forKey: "position")
         e.setValue(job.completedAt, forKey: "completedAt")
         e.setValue(job.note, forKey: "note")
-        e.setValue(Int64(job.photo?.bytes ?? 0), forKey: "photoBytes")
-        e.setValue(job.photo?.sha256, forKey: "photoSHA256")
+        // The phone's own photo info wins while it holds the bytes; the server's is stored only without them.
+        if e.value(forKey: "photo") == nil {
+            e.setValue(Int64(job.photo?.bytes ?? 0), forKey: "photoBytes")
+            e.setValue(job.photo?.sha256, forKey: "photoSHA256")
+        }
     }
 
     private func item(_ row: NSManagedObject) -> OutboxItem {

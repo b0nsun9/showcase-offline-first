@@ -131,6 +131,17 @@ struct JobStoreTests {
         #expect(try await store.jobs()[0].sync == .sent)
     }
 
+    @Test func finishWithPhotolessServerJobKeepsLocalPhotoAndBlocksRetake() async throws {
+        let store = try await readyStore()
+        try await store.complete(jobID: "j1", completedAt: now, idempotencyKey: "k")
+        let local = try #require(try await store.jobs()[0].photo)
+        let items = try await store.dueItems(now: now)
+        try await store.finish(items[0], serverJob: job(completedAt: now)) // server has photo: nil at this point
+        #expect(try await store.jobs()[0].photo == local)
+        #expect(try await store.photoData(jobID: "j1") == jpeg)
+        await #expect(throws: JobError.photoAlreadyTaken) { try await store.savePhoto(jobID: "j1", jpeg: Data([1])) }
+    }
+
     @Test func dueItemsRespectNextAttempt() async throws {
         let store = try await readyStore()
         try await store.complete(jobID: "j1", completedAt: now, idempotencyKey: "k")
