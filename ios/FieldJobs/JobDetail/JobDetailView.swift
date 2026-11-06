@@ -26,7 +26,7 @@ struct JobDetailView: View {
                     ZStack(alignment: .topLeading) {
                         TextEditor(text: $vm.note)
                             .frame(minHeight: 120)
-                            .disabled(job.completedAt != nil)
+                            .disabled(!vm.canEditNote)
                             .accessibilityLabel("Note (optional)")
                         if vm.note.isEmpty {
                             Text("Note (optional)")

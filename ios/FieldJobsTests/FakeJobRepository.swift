@@ -4,7 +4,7 @@ import Foundation
 /// Yields its snapshots in order, then finishes, so `start()` returns once the screen has shown them.
 final class FakeJobRepository: JobRepository, @unchecked Sendable {
     private let lock = NSLock()
-    private let snapshotsToYield: [JobsSnapshot]
+    private var _snapshots: [JobsSnapshot]
     private let refreshError: (any Error)?
     private let photo: Data?
     private let holdsComplete: Bool
@@ -14,7 +14,7 @@ final class FakeJobRepository: JobRepository, @unchecked Sendable {
     /// `photo` is the stored photo for every job; `holdsComplete` makes `complete` wait for `releaseComplete()`.
     init(snapshots: [JobsSnapshot] = [JobsSnapshot(jobs: [], updatedAt: nil, isOnline: true, sendingBlocked: false)],
          refreshError: (any Error)? = nil, photo: Data? = nil, holdsComplete: Bool = false) {
-        snapshotsToYield = snapshots
+        _snapshots = snapshots
         self.refreshError = refreshError
         self.photo = photo
         self.holdsComplete = holdsComplete
@@ -22,6 +22,12 @@ final class FakeJobRepository: JobRepository, @unchecked Sendable {
 
     /// "refresh", "sendPending", "savePhoto(id)", "saveNote(id, note)" and "complete(id)", in the order they were called.
     var calls: [String] { lock.withLock { _calls } }
+
+    /// What the next `snapshots()` call yields: set it to show the screen a later change.
+    var snapshotsToYield: [JobsSnapshot] {
+        get { lock.withLock { _snapshots } }
+        set { lock.withLock { _snapshots = newValue } }
+    }
 
     func snapshots() -> AsyncStream<JobsSnapshot> {
         let snapshots = snapshotsToYield

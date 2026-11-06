@@ -124,6 +124,39 @@ import Testing
         let fromServer = await shown(job(completedAt: someDate, sync: .sent))
         #expect(fromServer.canTakePhoto == false)
         #expect(fromServer.canComplete == false)
+        #expect(fromServer.canEditNote == false)
+    }
+
+    @Test func noteIsLockedOnceCompleteIsTapped() async throws {
+        let fake = fake(job(photo: info), holdsComplete: true)
+        let viewModel = await shown(fake)
+        #expect(viewModel.canEditNote)
+
+        let first = Task { await viewModel.complete() }
+        await eventually { fake.calls.contains("complete(job-1)") }
+        try #require(fake.calls.contains("complete(job-1)"))
+        #expect(viewModel.canEditNote == false)
+
+        fake.releaseComplete()
+        await first.value
+    }
+
+    @Test func lockedScreenShowsTheStoredNote() async throws {
+        let fake = fake(job(photo: info), holdsComplete: true)
+        let viewModel = await shown(fake)
+        viewModel.note = "Done"
+
+        let completing = Task { await viewModel.complete() }
+        await eventually { fake.calls.contains("complete(job-1)") }
+        try #require(fake.calls.contains("complete(job-1)"))
+        viewModel.note = "Done, and more" // typed after Complete was tapped, so not in the stored completion
+        fake.releaseComplete()
+        await completing.value
+
+        let locked = job(photo: info, note: "Done", completedAt: someDate, sync: .waiting)
+        fake.snapshotsToYield = [JobsSnapshot(jobs: [locked], updatedAt: someDate, isOnline: true, sendingBlocked: false)]
+        await viewModel.start() // the store's change that locks the screen
+        #expect(viewModel.note == "Done")
     }
 
     @Test func startShowsTheSavedDraftWithoutSavingIt() async {
