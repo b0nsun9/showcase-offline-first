@@ -67,6 +67,14 @@ import Testing
         }
     }
 
+    @Test(arguments: [("100000000000", 90_000.0), ("0", 1.0), ("-5", 1.0)])
+    func retryAfterIsClamped(header: String, seconds: TimeInterval) async {
+        StubURLProtocol.reset(.response(status: 409, headers: ["Retry-After": header], body: Data(#"{"error":"request_in_progress"}"#.utf8)))
+        await #expect(throws: APIFailure.http(status: 409, code: "request_in_progress", retryAfter: seconds)) {
+            _ = try await client().listJobs()
+        }
+    }
+
     @Test func droppedConnectionIsTransport() async {
         StubURLProtocol.reset(.failure(.networkConnectionLost))
         await #expect(throws: APIFailure.transport) { _ = try await client().listJobs() }

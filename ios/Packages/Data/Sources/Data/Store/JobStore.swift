@@ -154,11 +154,13 @@ final class JobStore: @unchecked Sendable {
         }
     }
 
+    /// The network came back: backoff starts again from its first wait. Retry-After waits stay.
     func clearBackoffWaits() async throws {
         try await transact { [self] in
             for row in try context.fetch(outboxRequest("waitIsBackoff == YES")) {
                 row.setValue(nil, forKey: "nextAttemptAt")
                 row.setValue(false, forKey: "waitIsBackoff")
+                row.setValue(Int32(0), forKey: "attempts")
             }
             try save()
         }

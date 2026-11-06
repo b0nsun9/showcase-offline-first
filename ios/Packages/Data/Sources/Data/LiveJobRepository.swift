@@ -18,11 +18,14 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
         let api = APIClient(config: config, session: URLSession(configuration: .ephemeral))
         let store = try JobStore(storeURL: storeURL)
         let outbox = Outbox(store: store, api: api, now: Date.init,
-                            sleep: { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) },
+                            sleep: { try await Task.sleep(nanoseconds: nanoseconds($0)) },
                             jitter: { Double.random(in: 0.8...1.2) })
         return LiveJobRepository(store: store, api: api, outbox: outbox, network: NetworkMonitor.paths(),
                                  defaults: defaults, now: Date.init)
     }
+
+    /// Saturates at about 31 years: `UInt64(seconds * 1e9)` traps above about 1.8e10 seconds.
+    static func nanoseconds(_ seconds: TimeInterval) -> UInt64 { seconds > 0 ? UInt64(min(seconds, 1e9) * 1e9) : 0 }
 
     init(store: JobStore, api: any APIClienting, outbox: Outbox, network: AsyncStream<Bool>, defaults: UserDefaults,
          now: @escaping @Sendable () -> Date) {

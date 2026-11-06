@@ -54,6 +54,28 @@ import Testing
         #expect(Array(await h.api.calls.prefix(4)) == [complete1, upload1, .list, complete1])
     }
 
+    @Test func networkReturnResetsBackoffToFirstWait() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        await h.api.failComplete(Array(repeating: .transport, count: 4))
+        let (network, link) = AsyncStream.makeStream(of: Bool.self)
+        let repo = h.repository(network: network)
+        for wait: TimeInterval in [2, 4, 8] {
+            await repo.sendPending()
+            h.time.advance(wait)
+        }
+        link.yield(false)
+        link.yield(true) // the path says online before the route works: one more transport failure
+        await eventually { await h.sleeper.requests.count == 4 }
+        #expect(await h.sleeper.requests == [2, 4, 8, 2])
+    }
+
+    @Test func productionSleepSaturates() {
+        #expect(LiveJobRepository.nanoseconds(2) == 2_000_000_000)
+        #expect(LiveJobRepository.nanoseconds(1e11) == 1_000_000_000_000_000_000)
+        #expect(LiveJobRepository.nanoseconds(.infinity) == 1_000_000_000_000_000_000)
+        #expect(LiveJobRepository.nanoseconds(-1) == 0)
+    }
+
     @Test func refreshFailureKeepsListAndUpdatedAt() async throws {
         let h = try await Harness(jobs: ["job-1"], completed: false)
         let repo = h.repository()

@@ -86,7 +86,8 @@ struct APIClient: APIClienting {
         guard let http = response as? HTTPURLResponse else { throw APIFailure.transport }
         guard (200..<300).contains(http.statusCode) else {
             let code = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
-            let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }.map(TimeInterval.init)
+            // Clamped at the trust boundary: 0 or less would resend at once, and a 429 waits at most the rest of an NZ day.
+            let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }.map { TimeInterval(min(max($0, 1), 90_000)) }
             throw APIFailure.http(status: http.statusCode, code: code, retryAfter: retry)
         }
         return (data, http)
