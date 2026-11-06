@@ -4,6 +4,7 @@
 
 # iOS
 build/
+.build/
 DerivedData/
 xcuserdata/
 *.xcuserstate
