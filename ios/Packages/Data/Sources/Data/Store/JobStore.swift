@@ -116,7 +116,7 @@ final class JobStore: @unchecked Sendable {
             guard entity.value(forKey: "photo") != nil else { throw JobError.photoMissing }
             entity.setValue(completedAt, forKey: "completedAt")
             let body = CompletionBody.encode(completedAt: completedAt, note: entity.value(forKey: "note") as? String)
-            let last = try context.fetch(outboxRequest(nil, sort: false, limit: 1, descending: true)).first
+            let last = try context.fetch(outboxRequest(nil, limit: 1, descending: true)).first
             let next = (last?.value(forKey: "sequence") as? Int64 ?? 0) + 1
             for (offset, kind) in ["complete", "photo"].enumerated() {
                 let row = NSEntityDescription.insertNewObject(forEntityName: "OutboxEntity", into: context)
@@ -218,7 +218,7 @@ final class JobStore: @unchecked Sendable {
         return try context.fetch(request).first
     }
 
-    private func outboxRequest(_ format: String?, _ args: CVarArg..., sort: Bool = true, limit: Int = 0, descending: Bool = false) -> NSFetchRequest<NSManagedObject> {
+    private func outboxRequest(_ format: String?, _ args: CVarArg..., limit: Int = 0, descending: Bool = false) -> NSFetchRequest<NSManagedObject> {
         let request = NSFetchRequest<NSManagedObject>(entityName: "OutboxEntity")
         if let format { request.predicate = NSPredicate(format: format, argumentArray: args) }
         request.sortDescriptors = [NSSortDescriptor(key: "sequence", ascending: !descending)]
