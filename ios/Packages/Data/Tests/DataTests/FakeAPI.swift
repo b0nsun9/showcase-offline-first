@@ -15,6 +15,7 @@ actor FakeAPI: APIClienting {
     private var completeFailures: [APIFailure] = []
     private var uploadAnswers: [PhotoDTO] = []
     private var held: [CheckedContinuation<Void, Never>]?
+    private var heldLists: [CheckedContinuation<Void, Never>]?
 
     init(jobIDs: [String]) { ids = jobIDs }
 
@@ -27,11 +28,16 @@ actor FakeAPI: APIClienting {
     /// Holds every write that arrives until `release()`.
     func hold() { held = [] }
     func release() { held?.forEach { $0.resume() }; held = nil }
+    /// Holds every list answer, as the server built it on arrival, until `releaseList()`.
+    func holdList() { heldLists = [] }
+    func releaseList() { heldLists?.forEach { $0.resume() }; heldLists = nil }
 
     func listJobs() async throws -> [JobDTO] {
         calls.append(.list)
         if !listFailures.isEmpty { throw listFailures.removeFirst() }
-        return jobs
+        let answer = jobs
+        if heldLists != nil { await withCheckedContinuation { heldLists?.append($0) } }
+        return answer
     }
 
     func complete(jobID: String, idempotencyKey: String, body: Data) async throws -> (job: JobDTO, replayed: Bool) {
@@ -146,6 +152,11 @@ struct Harness {
         let time = time
         return LiveJobRepository(store: store, api: api, outbox: outbox, network: network, defaults: defaults, now: { time.now })
     }
+}
+
+extension JobStore {
+    /// Applies a list answer as if it were requested just now.
+    func apply(server: [Job]) async throws { try await apply(server: server, asOf: confirmations) }
 }
 
 /// Yields until `condition` holds. The suites have a time limit, so a condition that never holds fails the test

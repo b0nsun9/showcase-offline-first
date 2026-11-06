@@ -11,6 +11,13 @@ import Testing
         #expect(JobMerge.merge(local: [local], server: [server]) == [local])
     }
 
+    @Test func mergeKeepsQueuedCompletionTheServerAlreadyRecorded() {
+        // The server recorded it but its answer was lost: the phone keeps its job, still waiting, and keeps sending.
+        let local = Job.make(photo: somePhoto, note: "Left at the door", completedAt: done, sync: .waiting)
+        let server = Job.make(note: "Left at the door", completedAt: done, sync: .sent)
+        #expect(JobMerge.merge(local: [local], server: [server]) == [local])
+    }
+
     @Test func mergeServerWinsWhenNothingPending() {
         let local = Job.make(completedAt: done, sync: .sent)
         let server = Job.make(task: "Changed", completedAt: done, sync: .sent)

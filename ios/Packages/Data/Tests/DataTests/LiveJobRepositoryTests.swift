@@ -26,6 +26,21 @@ import Testing
         #expect(sent?.sendingBlocked == false)
     }
 
+    @Test func timedSendGettingUnauthorizedShowsBlocked() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        await h.api.failComplete([.transport, .http(status: 401, code: "unauthorized", retryAfter: nil)])
+        let repo = h.repository()
+        var snapshots = repo.snapshots().makeAsyncIterator() // subscribed first, so only a later snapshot can show it
+        #expect(await snapshots.next()?.sendingBlocked == false)
+        await repo.sendPending() // the completion now waits 2 s of backoff
+        await eventually { await h.sleeper.sleepingCount == 1 }
+        h.time.advance(2)
+        await h.sleeper.wakeAll() // the wake-up sends again and gets 401, which changes nothing in the store
+        var latest = await snapshots.next()
+        while latest?.sendingBlocked == false { latest = await snapshots.next() }
+        #expect(latest?.sendingBlocked == true)
+    }
+
     @Test(arguments: [APIFailure.http(status: 401, code: "unauthorized", retryAfter: nil), .missingKey])
     func refreshAuthFailureStaysBlockedWithEmptyQueue(failure: APIFailure) async throws {
         let h = try await Harness(jobs: ["job-1"], completed: false) // nothing queued, as on a first launch
@@ -114,6 +129,38 @@ import Testing
         await held
         let wait = try await h.store.earliestWait()?.timeIntervalSince(h.time.now)
         #expect(wait == 2)
+    }
+
+    @Test func listAnswerFromBeforeConfirmationKeepsCompletion() async throws {
+        let h = try await Harness(jobs: ["job-1"], completed: false)
+        try await h.store.saveNote(jobID: "job-1", note: "kept")
+        let repo = h.repository()
+        await h.api.holdList()
+        async let refreshing: Void = repo.refresh() // the server answers at once, with job-1 still pending
+        await eventually { await h.api.calls == [.list] }
+        try await h.store.complete(jobID: "job-1", completedAt: testNow, idempotencyKey: "key-job-1")
+        let items = try await h.store.dueItems(now: testNow)
+        let recorded = Job(id: "job-1", address: "1 Main St", task: "Fix", windowStart: "09:00", windowEnd: "11:00",
+                           note: "kept", completedAt: testNow, sync: .sent) // no photo yet, as the server answers then
+        try await h.store.finish(items[0], serverJob: recorded)
+        try await h.store.finish(items[1], serverJob: nil)
+        await h.api.releaseList() // the old answer lands with nothing pending
+        try await refreshing
+        let job = try #require(try await h.store.jobs().first)
+        #expect(job.completedAt == testNow)
+        #expect(job.sync == .sent)
+        #expect(job.note == "kept")
+    }
+
+    @Test func completionTheServerAlreadyRecordedKeepsSending() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        _ = try await h.api.complete(jobID: "job-1", idempotencyKey: "key-job-1", body: sentBody) // its answer was lost
+        let repo = h.repository()
+        try await repo.refresh()
+        #expect(try await h.store.jobs().first?.sync == .waiting)
+        await repo.sendPending()
+        #expect(Array(await h.api.calls.prefix(4)) == [complete1, .list, complete1, upload1])
+        #expect(try await h.store.jobs().first?.sync == .sent)
     }
 
     @Test func productionSleepSaturates() {

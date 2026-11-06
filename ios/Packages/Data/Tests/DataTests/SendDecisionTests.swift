@@ -6,6 +6,8 @@ struct SendDecisionTests {
         (.transport, .retryWithBackoff),
         (.http(status: 500, code: nil, retryAfter: nil), .retryWithBackoff),
         (.http(status: 502, code: nil, retryAfter: nil), .retryWithBackoff),
+        (.http(status: 408, code: nil, retryAfter: nil), .retryWithBackoff),
+        (.http(status: 425, code: nil, retryAfter: nil), .retryWithBackoff),
         (.http(status: 409, code: nil, retryAfter: 7), .retryAfter(7)),
         (.http(status: 409, code: nil, retryAfter: nil), .retryAfter(5)),
         (.http(status: 429, code: nil, retryAfter: 120), .pauseAllWrites(120)),

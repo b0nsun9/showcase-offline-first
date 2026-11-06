@@ -38,6 +38,8 @@ import Foundation
         return photo != nil && note.utf16.count <= Job.noteLimit && !isCompleting
     }
 
+    var canEditNote: Bool { job?.completedAt == nil && !isCompleting }
+
     var canTakePhoto: Bool {
         guard let job else { return false }
         return photo == nil && job.photo == nil && job.completedAt == nil
@@ -60,7 +62,8 @@ import Foundation
         if photo == nil { photo = try? await loadJobs.photo(jobID: jobID) }
         for await snapshot in loadJobs.snapshots() {
             guard let latest = snapshot.jobs.first(where: { $0.id == jobID }) else { continue }
-            if job == nil { // later snapshots echo the draft back; the field keeps what's being typed
+            // Later snapshots echo the draft back, so the field keeps what's typed, until the stored note is final.
+            if job == nil || latest.completedAt != nil {
                 isShowingSavedNote = true
                 note = latest.note ?? ""
                 isShowingSavedNote = false

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import Data
 
-struct JobStoreTests {
+@Suite(.timeLimit(.minutes(1))) struct JobStoreTests {
     let now = Date(timeIntervalSince1970: 1_793_954_520)
     let jpeg = Data((0..<64).map { UInt8($0) })
 
@@ -22,15 +22,11 @@ struct JobStoreTests {
 
     @Test func completeQueuesCompletionThenPhotoInOneSave() async throws {
         let store = try await readyStore()
-        let counter = Counter()
-        let listener = Task { for await _ in store.changes { await counter.bump() } }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        let changes = store.changes // subscribed before the save, so none of its notifications can be missed
         try await store.complete(jobID: "j1", completedAt: now, idempotencyKey: "key-1")
-        try await store.apply(server: [job()]) // sentinel save: the count below must be 1 (complete) + 1 (sentinel)
-        for _ in 0..<100 where await counter.value < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
-        try await Task.sleep(nanoseconds: 100_000_000)
-        listener.cancel()
-        #expect(await counter.value == 2)
+        let counting = Task { await changes.reduce(0) { count, _ in count + 1 } }
+        counting.cancel() // a cancelled stream still hands over what it holds, then ends
+        #expect(await counting.value == 1)
 
         let jobs = try await store.jobs()
         #expect(jobs[0].sync == .waiting)
@@ -96,6 +92,23 @@ struct JobStoreTests {
         #expect(after.map(\.kind) == before.map(\.kind))
         #expect(after[0].kind == .complete(idempotencyKey: "key-disk", body: CompletionBody.encode(completedAt: now, note: "kept")))
         #expect(try await reopened.photoData(jobID: "j1") == jpeg)
+    }
+
+    @Test func largePhotoSurvivesReopeningStore() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("jobs.sqlite")
+        let big = Data((0..<204_800).map { UInt8($0 % 251) }) // 200 KB: Core Data keeps it in a file beside the store
+        do {
+            let store = try JobStore(storeURL: url)
+            try await store.apply(server: [job()])
+            try await store.savePhoto(jobID: "j1", jpeg: big)
+        }
+        let reopened = try JobStore(storeURL: url)
+        #expect(try await reopened.photoData(jobID: "j1") == big)
+        let hex = SHA256.hash(data: big).map { String(format: "%02x", $0) }.joined()
+        #expect(try await reopened.jobs()[0].photo == PhotoInfo(bytes: 204_800, sha256: hex))
     }
 
     @Test func applyServerUsesMergeRule() async throws {
@@ -173,9 +186,4 @@ struct JobStoreTests {
         #expect(try await store.recordPhotoMismatch(photo) == 1)
         #expect(try await store.recordPhotoMismatch(photo) == 2)
     }
-}
-
-actor Counter {
-    private(set) var value = 0
-    func bump() { value += 1 }
 }

@@ -4,6 +4,7 @@ enum StoreModel {
     /// Built once per process: Core Data warns when one entity belongs to two models.
     nonisolated(unsafe) static let shared = makeModel()
 
+    /// No migration path yet: there are no installs, so a changed model needs one only once there are.
     static func makeModel() -> NSManagedObjectModel {
         func attr(_ name: String, _ type: NSAttributeType, optional: Bool = false, default value: Any? = nil) -> NSAttributeDescription {
             let a = NSAttributeDescription()
@@ -32,7 +33,6 @@ enum StoreModel {
             photo,
             attr("photoBytes", .integer64AttributeType, default: 0),
             attr("photoSHA256", .stringAttributeType, optional: true),
-            attr("serverCompleted", .booleanAttributeType, default: false),
         ]
         job.uniquenessConstraints = [["id"]]
 

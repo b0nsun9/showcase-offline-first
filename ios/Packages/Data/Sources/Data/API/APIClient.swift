@@ -3,6 +3,12 @@ import Foundation
 
 struct APIConfig: Sendable { let host: String; let apiKey: String; let installID: UUID }
 
+/// Prints without the key, so no log or debugger summary can show it.
+extension APIConfig: CustomStringConvertible, CustomDebugStringConvertible {
+    var description: String { "APIConfig(host: \(host), apiKey: <redacted>, installID: \(installID))" }
+    var debugDescription: String { description }
+}
+
 struct PhotoDTO: Decodable, Equatable, Sendable { let bytes: Int; let sha256: String }
 
 struct JobDTO: Decodable, Equatable, Sendable {

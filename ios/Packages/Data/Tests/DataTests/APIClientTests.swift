@@ -12,6 +12,12 @@ import Testing
 
     static let envelope = #"{"job":\#(jobJSON)}"#
 
+    @Test func configNeverPrintsTheKey() {
+        let config = APIConfig(host: "dev.api.showcase.bonsung.me", apiKey: "secret-key-123", installID: install)
+        #expect(!String(describing: config).contains("secret-key-123"))
+        #expect(!String(reflecting: config).contains("secret-key-123"))
+    }
+
     @Test func listJobsSendsKeyAndInstallID() async throws {
         StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(#"{"jobs":[\#(Self.jobJSON)]}"#.utf8)))
         let jobs = try await client().listJobs()

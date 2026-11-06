@@ -18,6 +18,7 @@ final class JobStore: @unchecked Sendable {
     private let context: NSManagedObjectContext
     private let lock = NSLock()
     private var listeners: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var confirmed = 0 // in memory: a list answer never outlives the process that asked for it
 
     /// `nil` opens an in-memory store.
     init(storeURL: URL?) throws {
@@ -42,6 +43,9 @@ final class JobStore: @unchecked Sendable {
             }
         }
     }
+
+    /// How many queue items the server has confirmed. Read it before asking for the list, and pass it to `apply`.
+    var confirmations: Int { lock.withLock { confirmed } }
 
     // MARK: Reads
 
@@ -69,10 +73,11 @@ final class JobStore: @unchecked Sendable {
 
     // MARK: Job writes
 
-    func apply(server: [Job]) async throws {
+    /// Writes nothing if the server confirmed something since `confirmations` was read: the answer may predate it.
+    func apply(server: [Job], asOf confirmations: Int) async throws {
         try await transact { [self] in
+            guard self.confirmations == confirmations else { return }
             let merged = JobMerge.merge(local: try loadJobs(), server: server)
-            let serverByID = Dictionary(server.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let keep = Set(merged.map(\.id))
             for entity in try context.fetch(NSFetchRequest<NSManagedObject>(entityName: "JobEntity")) {
                 if !keep.contains(entity.value(forKey: "id") as? String ?? "") { context.delete(entity) }
@@ -80,7 +85,6 @@ final class JobStore: @unchecked Sendable {
             for (index, job) in merged.enumerated() {
                 let entity = try fetchJob(job.id) ?? NSEntityDescription.insertNewObject(forEntityName: "JobEntity", into: context)
                 write(job, position: index, to: entity)
-                if let confirmed = serverByID[job.id] { entity.setValue(confirmed.completedAt != nil, forKey: "serverCompleted") }
             }
             try save()
         }
@@ -116,7 +120,7 @@ final class JobStore: @unchecked Sendable {
             guard entity.value(forKey: "photo") != nil else { throw JobError.photoMissing }
             entity.setValue(completedAt, forKey: "completedAt")
             let body = CompletionBody.encode(completedAt: completedAt, note: entity.value(forKey: "note") as? String)
-            let last = try context.fetch(outboxRequest(nil, sort: false, limit: 1, descending: true)).first
+            let last = try context.fetch(outboxRequest(nil, limit: 1, descending: true)).first
             let next = (last?.value(forKey: "sequence") as? Int64 ?? 0) + 1
             for (offset, kind) in ["complete", "photo"].enumerated() {
                 let row = NSEntityDescription.insertNewObject(forEntityName: "OutboxEntity", into: context)
@@ -140,9 +144,9 @@ final class JobStore: @unchecked Sendable {
             if let row = try fetchRow(item.id) { context.delete(row) }
             if let serverJob, let entity = try fetchJob(serverJob.id) {
                 write(serverJob, position: Int(entity.value(forKey: "position") as? Int16 ?? 0), to: entity)
-                entity.setValue(true, forKey: "serverCompleted")
             }
             try save()
+            lock.withLock { confirmed += 1 }
         }
     }
 
@@ -218,7 +222,7 @@ final class JobStore: @unchecked Sendable {
         return try context.fetch(request).first
     }
 
-    private func outboxRequest(_ format: String?, _ args: CVarArg..., sort: Bool = true, limit: Int = 0, descending: Bool = false) -> NSFetchRequest<NSManagedObject> {
+    private func outboxRequest(_ format: String?, _ args: CVarArg..., limit: Int = 0, descending: Bool = false) -> NSFetchRequest<NSManagedObject> {
         let request = NSFetchRequest<NSManagedObject>(entityName: "OutboxEntity")
         if let format { request.predicate = NSPredicate(format: format, argumentArray: args) }
         request.sortDescriptors = [NSSortDescriptor(key: "sequence", ascending: !descending)]

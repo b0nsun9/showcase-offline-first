@@ -3,7 +3,7 @@ import Domain
 import Foundation
 import Testing
 
-@MainActor @Suite struct JobDetailViewModelTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct JobDetailViewModelTests {
     let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
     let info = PhotoInfo(bytes: 4, sha256: "abc")
     let someDate = Date(timeIntervalSince1970: 1_793_954_520)
@@ -66,12 +66,13 @@ import Testing
         #expect(viewModel.canComplete)
     }
 
-    @Test func completeIsDisabledWhileCompleting() async {
+    @Test func completeIsDisabledWhileCompleting() async throws {
         let fake = fake(job(photo: info), holdsComplete: true)
         let viewModel = await shown(fake)
 
         let first = Task { await viewModel.complete() }
         await eventually { fake.calls.contains("complete(job-1)") }
+        try #require(fake.calls.contains("complete(job-1)")) // otherwise the release below comes first, and `first` never ends
         #expect(viewModel.canComplete == false)
         await viewModel.complete()
 
@@ -123,6 +124,39 @@ import Testing
         let fromServer = await shown(job(completedAt: someDate, sync: .sent))
         #expect(fromServer.canTakePhoto == false)
         #expect(fromServer.canComplete == false)
+        #expect(fromServer.canEditNote == false)
+    }
+
+    @Test func noteIsLockedOnceCompleteIsTapped() async throws {
+        let fake = fake(job(photo: info), holdsComplete: true)
+        let viewModel = await shown(fake)
+        #expect(viewModel.canEditNote)
+
+        let first = Task { await viewModel.complete() }
+        await eventually { fake.calls.contains("complete(job-1)") }
+        try #require(fake.calls.contains("complete(job-1)"))
+        #expect(viewModel.canEditNote == false)
+
+        fake.releaseComplete()
+        await first.value
+    }
+
+    @Test func lockedScreenShowsTheStoredNote() async throws {
+        let fake = fake(job(photo: info), holdsComplete: true)
+        let viewModel = await shown(fake)
+        viewModel.note = "Done"
+
+        let completing = Task { await viewModel.complete() }
+        await eventually { fake.calls.contains("complete(job-1)") }
+        try #require(fake.calls.contains("complete(job-1)"))
+        viewModel.note = "Done, and more" // typed after Complete was tapped, so not in the stored completion
+        fake.releaseComplete()
+        await completing.value
+
+        let locked = job(photo: info, note: "Done", completedAt: someDate, sync: .waiting)
+        fake.snapshotsToYield = [JobsSnapshot(jobs: [locked], updatedAt: someDate, isOnline: true, sendingBlocked: false)]
+        await viewModel.start() // the store's change that locks the screen
+        #expect(viewModel.note == "Done")
     }
 
     @Test func startShowsTheSavedDraftWithoutSavingIt() async {

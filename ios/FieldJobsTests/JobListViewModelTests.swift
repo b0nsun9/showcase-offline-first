@@ -3,7 +3,7 @@ import Domain
 import Foundation
 import Testing
 
-@MainActor @Suite struct JobListViewModelTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct JobListViewModelTests {
     let someDate = Date(timeIntervalSince1970: 1_793_954_520)
 
     func makeViewModel(_ repository: FakeJobRepository) -> JobListViewModel {
