@@ -137,6 +137,17 @@ import Testing
         #expect(job.note == "kept")
     }
 
+    @Test func completionTheServerAlreadyRecordedKeepsSending() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        _ = try await h.api.complete(jobID: "job-1", idempotencyKey: "key-job-1", body: sentBody) // its answer was lost
+        let repo = h.repository()
+        try await repo.refresh()
+        #expect(try await h.store.jobs().first?.sync == .waiting)
+        await repo.sendPending()
+        #expect(Array(await h.api.calls.prefix(4)) == [complete1, .list, complete1, upload1])
+        #expect(try await h.store.jobs().first?.sync == .sent)
+    }
+
     @Test func productionSleepSaturates() {
         #expect(LiveJobRepository.nanoseconds(2) == 2_000_000_000)
         #expect(LiveJobRepository.nanoseconds(1e11) == 1_000_000_000_000_000_000)
