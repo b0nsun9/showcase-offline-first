@@ -26,6 +26,21 @@ import Testing
         #expect(sent?.sendingBlocked == false)
     }
 
+    @Test func timedSendGettingUnauthorizedShowsBlocked() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        await h.api.failComplete([.transport, .http(status: 401, code: "unauthorized", retryAfter: nil)])
+        let repo = h.repository()
+        var snapshots = repo.snapshots().makeAsyncIterator() // subscribed first, so only a later snapshot can show it
+        #expect(await snapshots.next()?.sendingBlocked == false)
+        await repo.sendPending() // the completion now waits 2 s of backoff
+        await eventually { await h.sleeper.sleepingCount == 1 }
+        h.time.advance(2)
+        await h.sleeper.wakeAll() // the wake-up sends again and gets 401, which changes nothing in the store
+        var latest = await snapshots.next()
+        while latest?.sendingBlocked == false { latest = await snapshots.next() }
+        #expect(latest?.sendingBlocked == true)
+    }
+
     @Test(arguments: [APIFailure.http(status: 401, code: "unauthorized", retryAfter: nil), .missingKey])
     func refreshAuthFailureStaysBlockedWithEmptyQueue(failure: APIFailure) async throws {
         let h = try await Harness(jobs: ["job-1"], completed: false) // nothing queued, as on a first launch
