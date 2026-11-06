@@ -8,21 +8,13 @@ The app talks to a hosted API, described by its own OpenAPI document at <https:/
 
 The app is built through five stages. Every stage leaves a file or a record here, so how it was built can be read in this repository.
 
-## The five stages
+## Before any work
 
-| Stage | Tool | What it leaves |
-|---|---|---|
-| 1. Brainstorm | `superpowers:brainstorming` | the spec, `docs/specs/YYYY-MM-DD-<topic>.md` |
-| 2. Plan | `superpowers:writing-plans` | `docs/plans/YYYY-MM-DD-<platform>.md` |
-| 3. Build | `superpowers:test-driven-development` and `superpowers:subagent-driven-development` | the code, on one branch per plan task |
-| 4. Gate and test | the tests, this repository's hooks in `.claude/` and a review | the hooks |
-| 5. Compound | `compound-engineering:ce-compound` | `docs/solutions/` |
-
-Stages 3 to 5 run locally. Only then does the branch go up as a pull request, one per plan task.
+Invoke the `workflow` skill before you start any work.
 
 ## Rules
 
-- A stage starts only after the owner approves the file the previous stage left.
+- A stage starts only after the owner approves the file the previous stage left. For a plan task, the owner's merge of its pull request is that approval, and the next task starts only after it.
 - Tests come before code.
 - API keys live only in `ios/Secrets.xcconfig` and `android/local.properties`, which git ignores. A key is never committed and never printed in a log.
 - Only the owner merges pull requests.
