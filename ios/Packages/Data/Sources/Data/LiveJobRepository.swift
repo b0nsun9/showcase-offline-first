@@ -70,8 +70,9 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
 
     public func refresh() async throws {
         do {
+            let confirmations = store.confirmations
             let jobs = try await api.listJobs()
-            try await store.apply(server: jobs.map { $0.toDomain() })
+            try await store.apply(server: jobs.map { $0.toDomain() }, asOf: confirmations)
             await outbox.unblock() // the server accepted the key: the only evidence that clears a 401 block
         } catch let failure as APIFailure {
             if sendDecision(for: failure) == .stopAll { await outbox.block() }

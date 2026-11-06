@@ -116,6 +116,27 @@ import Testing
         #expect(wait == 2)
     }
 
+    @Test func listAnswerFromBeforeConfirmationKeepsCompletion() async throws {
+        let h = try await Harness(jobs: ["job-1"], completed: false)
+        try await h.store.saveNote(jobID: "job-1", note: "kept")
+        let repo = h.repository()
+        await h.api.holdList()
+        async let refreshing: Void = repo.refresh() // the server answers at once, with job-1 still pending
+        await eventually { await h.api.calls == [.list] }
+        try await h.store.complete(jobID: "job-1", completedAt: testNow, idempotencyKey: "key-job-1")
+        let items = try await h.store.dueItems(now: testNow)
+        let recorded = Job(id: "job-1", address: "1 Main St", task: "Fix", windowStart: "09:00", windowEnd: "11:00",
+                           note: "kept", completedAt: testNow, sync: .sent) // no photo yet, as the server answers then
+        try await h.store.finish(items[0], serverJob: recorded)
+        try await h.store.finish(items[1], serverJob: nil)
+        await h.api.releaseList() // the old answer lands with nothing pending
+        try await refreshing
+        let job = try #require(try await h.store.jobs().first)
+        #expect(job.completedAt == testNow)
+        #expect(job.sync == .sent)
+        #expect(job.note == "kept")
+    }
+
     @Test func productionSleepSaturates() {
         #expect(LiveJobRepository.nanoseconds(2) == 2_000_000_000)
         #expect(LiveJobRepository.nanoseconds(1e11) == 1_000_000_000_000_000_000)

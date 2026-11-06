@@ -18,6 +18,7 @@ final class JobStore: @unchecked Sendable {
     private let context: NSManagedObjectContext
     private let lock = NSLock()
     private var listeners: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var confirmed = 0 // in memory: a list answer never outlives the process that asked for it
 
     /// `nil` opens an in-memory store.
     init(storeURL: URL?) throws {
@@ -42,6 +43,9 @@ final class JobStore: @unchecked Sendable {
             }
         }
     }
+
+    /// How many queue items the server has confirmed. Read it before asking for the list, and pass it to `apply`.
+    var confirmations: Int { lock.withLock { confirmed } }
 
     // MARK: Reads
 
@@ -69,10 +73,11 @@ final class JobStore: @unchecked Sendable {
 
     // MARK: Job writes
 
-    func apply(server: [Job]) async throws {
+    /// Writes nothing if the server confirmed something since `confirmations` was read: the answer may predate it.
+    func apply(server: [Job], asOf confirmations: Int) async throws {
         try await transact { [self] in
+            guard self.confirmations == confirmations else { return }
             let merged = JobMerge.merge(local: try loadJobs(), server: server)
-            let serverByID = Dictionary(server.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let keep = Set(merged.map(\.id))
             for entity in try context.fetch(NSFetchRequest<NSManagedObject>(entityName: "JobEntity")) {
                 if !keep.contains(entity.value(forKey: "id") as? String ?? "") { context.delete(entity) }
@@ -80,7 +85,6 @@ final class JobStore: @unchecked Sendable {
             for (index, job) in merged.enumerated() {
                 let entity = try fetchJob(job.id) ?? NSEntityDescription.insertNewObject(forEntityName: "JobEntity", into: context)
                 write(job, position: index, to: entity)
-                if let confirmed = serverByID[job.id] { entity.setValue(confirmed.completedAt != nil, forKey: "serverCompleted") }
             }
             try save()
         }
@@ -140,9 +144,9 @@ final class JobStore: @unchecked Sendable {
             if let row = try fetchRow(item.id) { context.delete(row) }
             if let serverJob, let entity = try fetchJob(serverJob.id) {
                 write(serverJob, position: Int(entity.value(forKey: "position") as? Int16 ?? 0), to: entity)
-                entity.setValue(true, forKey: "serverCompleted")
             }
             try save()
+            lock.withLock { confirmed += 1 }
         }
     }
 
