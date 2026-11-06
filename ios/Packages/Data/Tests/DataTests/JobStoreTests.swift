@@ -22,15 +22,11 @@ import Testing
 
     @Test func completeQueuesCompletionThenPhotoInOneSave() async throws {
         let store = try await readyStore()
-        let counter = Counter()
-        let listener = Task { for await _ in store.changes { await counter.bump() } }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        let changes = store.changes // subscribed before the save, so none of its notifications can be missed
         try await store.complete(jobID: "j1", completedAt: now, idempotencyKey: "key-1")
-        try await store.apply(server: [job()]) // sentinel save: the count below must be 1 (complete) + 1 (sentinel)
-        for _ in 0..<100 where await counter.value < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
-        try await Task.sleep(nanoseconds: 100_000_000)
-        listener.cancel()
-        #expect(await counter.value == 2)
+        let counting = Task { await changes.reduce(0) { count, _ in count + 1 } }
+        counting.cancel() // a cancelled stream still hands over what it holds, then ends
+        #expect(await counting.value == 1)
 
         let jobs = try await store.jobs()
         #expect(jobs[0].sync == .waiting)
@@ -173,9 +169,4 @@ import Testing
         #expect(try await store.recordPhotoMismatch(photo) == 1)
         #expect(try await store.recordPhotoMismatch(photo) == 2)
     }
-}
-
-actor Counter {
-    private(set) var value = 0
-    func bump() { value += 1 }
 }
