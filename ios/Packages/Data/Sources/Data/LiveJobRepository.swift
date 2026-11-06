@@ -72,6 +72,7 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
         do {
             let jobs = try await api.listJobs()
             try await store.apply(server: jobs.map { $0.toDomain() })
+            await outbox.unblock() // the server accepted the key: the only evidence that clears a 401 block
         } catch let failure as APIFailure {
             if sendDecision(for: failure) == .stopAll { await outbox.block() }
             throw failure
@@ -89,10 +90,7 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
         try await store.complete(jobID: jobID, completedAt: completedAt, idempotencyKey: UUID().uuidString)
     }
 
-    public func sendPending() async {
-        await outbox.unblock()
-        await outbox.drain()
-    }
+    public func sendPending() async { await outbox.drain() }
 
     private func snapshot() async throws -> JobsSnapshot {
         let jobs = try await store.jobs()
