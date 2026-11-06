@@ -94,14 +94,14 @@ actor Outbox {
                 if try await store.recordPhotoMismatch(item) >= 3 {
                     try await store.markCouldNotSend(item)
                 } else {
-                    try await store.reschedule(item, at: backoff(item), isBackoff: true)
+                    try await store.reschedule(item, at: backoff, isBackoff: true)
                 }
                 return false
             }
         } catch let failure as APIFailure {
             switch sendDecision(for: failure) {
-            case .retryWithBackoff: try await store.reschedule(item, at: backoff(item), isBackoff: true)
-            case let .retryAfter(seconds): try await store.reschedule(item, at: now() + seconds, isBackoff: false)
+            case .retryWithBackoff: try await store.reschedule(item, at: backoff, isBackoff: true)
+            case let .retryAfter(seconds): try await store.reschedule(item, at: { [now] _ in now() + seconds }, isBackoff: false)
             case let .pauseAllWrites(seconds): pausedUntil = now() + seconds
             case .stopAll: setBlocked(true)
             case .couldNotSend: try await store.markCouldNotSend(item)
@@ -110,9 +110,9 @@ actor Outbox {
         }
     }
 
-    /// `attempts` counts the failures before this one, so the first retry waits 2 seconds.
-    private func backoff(_ item: OutboxItem) -> Date {
-        now() + min(2 * pow(2, Double(item.attempts)), 300) * jitter()
+    /// `attempts` counts the stored failures before this one, so the first retry waits 2 seconds.
+    private var backoff: @Sendable (_ attempts: Int) -> Date {
+        { [now, jitter] attempts in now() + min(2 * pow(2, Double(attempts)), 300) * jitter() }
     }
 
     private var isPaused: Bool { pausedUntil.map { now() < $0 } ?? false }

@@ -146,10 +146,12 @@ final class JobStore: @unchecked Sendable {
         }
     }
 
-    func reschedule(_ item: OutboxItem, at date: Date, isBackoff: Bool) async throws {
+    /// `date` gets the stored failure count, read in this write: a reset since `item` was fetched counts.
+    func reschedule(_ item: OutboxItem, at date: @escaping @Sendable (_ attempts: Int) -> Date, isBackoff: Bool) async throws {
         try await update(item) { row in
-            row.setValue((row.value(forKey: "attempts") as? Int32 ?? 0) + 1, forKey: "attempts")
-            row.setValue(date, forKey: "nextAttemptAt")
+            let attempts = row.value(forKey: "attempts") as? Int32 ?? 0
+            row.setValue(attempts + 1, forKey: "attempts")
+            row.setValue(date(Int(attempts)), forKey: "nextAttemptAt")
             row.setValue(isBackoff, forKey: "waitIsBackoff")
         }
     }

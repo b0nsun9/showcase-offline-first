@@ -9,7 +9,7 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
     private let defaults: UserDefaults
     private let now: @Sendable () -> Date
     private let lock = NSLock()
-    private var isOnline = true
+    private var isOnline: Bool? // nil until the first report, so a launch with signal resets waits like a reconnect
     private var listeners: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var tasks: [Task<Void, Never>] = []
 
@@ -96,7 +96,7 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
         let jobs = try await store.jobs()
         let blocked = await outbox.sendingBlocked
         return JobsSnapshot(jobs: jobs, updatedAt: defaults.object(forKey: "lastRefreshAt") as? Date,
-                            isOnline: lock.withLock { isOnline }, sendingBlocked: blocked)
+                            isOnline: lock.withLock { isOnline ?? true }, sendingBlocked: blocked)
     }
 
     private func notify() {
@@ -104,7 +104,7 @@ public final class LiveJobRepository: JobRepository, @unchecked Sendable {
     }
 
     private func networkChanged(_ online: Bool) async {
-        let wasOnline = lock.withLock { () -> Bool in
+        let wasOnline = lock.withLock { () -> Bool? in
             let was = isOnline
             isOnline = online
             return was

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct JobListView: View {
     @ObservedObject var vm: JobListViewModel
+    let makeDetail: (String) -> JobDetailViewModel
 
     var body: some View {
         NavigationView {
@@ -10,7 +11,7 @@ struct JobListView: View {
                     Text(emptyMessage).foregroundColor(.secondary)
                 }
                 ForEach(vm.rows) { row in
-                    NavigationLink(destination: Text(row.address)) {
+                    NavigationLink(destination: JobDetailView(vm: makeDetail(row.id))) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(row.window).font(.subheadline)
                             Text(row.address).font(.headline)
