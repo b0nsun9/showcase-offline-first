@@ -146,7 +146,7 @@ struct JobStoreTests {
         let store = try await readyStore()
         try await store.complete(jobID: "j1", completedAt: now, idempotencyKey: "k")
         let first = try await store.dueItems(now: now)[0]
-        try await store.reschedule(first, at: now.addingTimeInterval(10), isBackoff: true)
+        try await store.reschedule(first, at: { _ in now.addingTimeInterval(10) }, isBackoff: true)
         #expect(try await store.dueItems(now: now).map(\.kind) == [.photo])
         let later = try await store.dueItems(now: now.addingTimeInterval(10))
         #expect(later.count == 2)
@@ -158,8 +158,8 @@ struct JobStoreTests {
         let store = try await readyStore()
         try await store.complete(jobID: "j1", completedAt: now, idempotencyKey: "k")
         let items = try await store.dueItems(now: now)
-        try await store.reschedule(items[0], at: now.addingTimeInterval(60), isBackoff: true)
-        try await store.reschedule(items[1], at: now.addingTimeInterval(60), isBackoff: false)
+        try await store.reschedule(items[0], at: { _ in now.addingTimeInterval(60) }, isBackoff: true)
+        try await store.reschedule(items[1], at: { _ in now.addingTimeInterval(60) }, isBackoff: false)
         try await store.clearBackoffWaits()
         #expect(try await store.dueItems(now: now).map(\.kind) == [items[0].kind])
         // Back to the first wait for the backoff item; the Retry-After item keeps its count.

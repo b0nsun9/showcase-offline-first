@@ -83,6 +83,39 @@ import Testing
         #expect(await h.sleeper.requests == [2, 4, 8, 2])
     }
 
+    @Test func firstOnlineReportClearsStoredBackoff() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        await h.api.failComplete([.transport])
+        let (network, link) = AsyncStream.makeStream(of: Bool.self)
+        let repo = h.repository(network: network)
+        await repo.sendPending() // a backoff wait is stored, as a previous launch would leave it; the clock never moves
+        #expect(try await h.store.dueItems(now: testNow).isEmpty)
+        link.yield(true) // a launch with signal: the first report is online
+        #expect(await repo.snapshot { $0.jobs.first?.sync == .sent } != nil)
+        #expect(Array(await h.api.calls.prefix(4)) == [complete1, upload1, .list, complete1])
+    }
+
+    @Test func failureInFlightAcrossReconnectWaitsFirstBackoff() async throws {
+        let h = try await Harness(jobs: ["job-1"])
+        await h.api.failComplete(Array(repeating: .transport, count: 4))
+        let (network, link) = AsyncStream.makeStream(of: Bool.self)
+        let repo = h.repository(network: network)
+        for wait: TimeInterval in [2, 4, 8] { // three failures: an old count would make the next wait 16 s
+            await repo.sendPending()
+            h.time.advance(wait)
+        }
+        await h.api.hold()
+        async let held: Void = repo.sendPending()
+        await eventually { await h.api.calls.filter { $0 == complete1 }.count == 4 }
+        link.yield(false)
+        link.yield(true) // the reset lands while the request still hangs on the dying connection
+        await eventually { await h.api.calls.last == .list }
+        await h.api.release() // then it fails with .transport
+        await held
+        let wait = try await h.store.earliestWait()?.timeIntervalSince(h.time.now)
+        #expect(wait == 2)
+    }
+
     @Test func productionSleepSaturates() {
         #expect(LiveJobRepository.nanoseconds(2) == 2_000_000_000)
         #expect(LiveJobRepository.nanoseconds(1e11) == 1_000_000_000_000_000_000)
