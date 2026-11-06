@@ -8,10 +8,12 @@ import Testing
         APIClient(config: APIConfig(host: "dev.api.showcase.bonsung.me", apiKey: key, installID: install),
                   session: StubURLProtocol.session)
     }
-    static let jobJSON = #"{"id":"job-1","address":"1 Main St","task":"Fix","date":"2026-11-06","windowStart":"09:00","windowEnd":"11:00","status":"completed","completedAt":"2026-11-06T08:42:00.000Z","note":null,"photo":null}"#
+    static let jobJSON = #"{"id":"job-1","address":"1 Main St","task":"Fix","date":"2026-11-06","windowStart":"09:00","windowEnd":"11:00","status":"completed","completedAt":"2026-11-06T08:42:00.000Z","note":null,"photo":null,"updatedAt":"2026-11-06T08:42:01.000Z"}"#
+
+    static let envelope = #"{"job":\#(jobJSON)}"#
 
     @Test func listJobsSendsKeyAndInstallID() async throws {
-        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data("[\(Self.jobJSON)]".utf8)))
+        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(#"{"jobs":[\#(Self.jobJSON)]}"#.utf8)))
         let jobs = try await client().listJobs()
         #expect(jobs.count == 1)
         let r = try #require(StubURLProtocol.requests.first)
@@ -23,7 +25,7 @@ import Testing
     }
 
     @Test func completeSendsKeyAndExactBody() async throws {
-        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(Self.jobJSON.utf8)))
+        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(Self.envelope.utf8)))
         let body = Data(#"{"completedAt":"x","note":null}"#.utf8)
         _ = try await client().complete(jobID: "job-1", idempotencyKey: "key-1", body: body)
         let r = try #require(StubURLProtocol.requests.first)
@@ -37,10 +39,10 @@ import Testing
     }
 
     @Test func completeReportsReplayed() async throws {
-        StubURLProtocol.reset(.response(status: 200, headers: ["Idempotent-Replayed": "true"], body: Data(Self.jobJSON.utf8)))
+        StubURLProtocol.reset(.response(status: 200, headers: ["Idempotent-Replayed": "true"], body: Data(Self.envelope.utf8)))
         let replayed = try await client().complete(jobID: "job-1", idempotencyKey: "k", body: Data())
         #expect(replayed.replayed)
-        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(Self.jobJSON.utf8)))
+        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(Self.envelope.utf8)))
         let fresh = try await client().complete(jobID: "job-1", idempotencyKey: "k", body: Data())
         #expect(!fresh.replayed)
     }
@@ -65,6 +67,14 @@ import Testing
         }
     }
 
+    @Test(arguments: [("100000000000", 90_000.0), ("0", 1.0), ("-5", 1.0)])
+    func retryAfterIsClamped(header: String, seconds: TimeInterval) async {
+        StubURLProtocol.reset(.response(status: 409, headers: ["Retry-After": header], body: Data(#"{"error":"request_in_progress"}"#.utf8)))
+        await #expect(throws: APIFailure.http(status: 409, code: "request_in_progress", retryAfter: seconds)) {
+            _ = try await client().listJobs()
+        }
+    }
+
     @Test func droppedConnectionIsTransport() async {
         StubURLProtocol.reset(.failure(.networkConnectionLost))
         await #expect(throws: APIFailure.transport) { _ = try await client().listJobs() }
@@ -79,5 +89,14 @@ import Testing
     @Test func undecodableSuccessBodyIsTransport() async {
         StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data("<html>Sign in to Wi-Fi</html>".utf8)))
         await #expect(throws: APIFailure.transport) { _ = try await client().listJobs() }
+    }
+
+    @Test func bareShapesAreRejected() async {
+        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data("[\(Self.jobJSON)]".utf8)))
+        await #expect(throws: APIFailure.transport) { _ = try await client().listJobs() }
+        StubURLProtocol.reset(.response(status: 200, headers: [:], body: Data(Self.jobJSON.utf8)))
+        await #expect(throws: APIFailure.transport) {
+            _ = try await client().complete(jobID: "job-1", idempotencyKey: "k", body: Data())
+        }
     }
 }

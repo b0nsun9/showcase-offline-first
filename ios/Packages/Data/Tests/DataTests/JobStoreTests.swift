@@ -162,6 +162,8 @@ struct JobStoreTests {
         try await store.reschedule(items[1], at: now.addingTimeInterval(60), isBackoff: false)
         try await store.clearBackoffWaits()
         #expect(try await store.dueItems(now: now).map(\.kind) == [items[0].kind])
+        // Back to the first wait for the backoff item; the Retry-After item keeps its count.
+        #expect(try await store.dueItems(now: .distantFuture).map(\.attempts) == [0, 1])
     }
 
     @Test func recordPhotoMismatchCounts() async throws {

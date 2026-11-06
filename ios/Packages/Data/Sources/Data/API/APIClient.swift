@@ -45,25 +45,28 @@ struct APIClient: APIClienting {
 
     func listJobs() async throws -> [JobDTO] {
         let (data, _) = try await send(path: "/v1/jobs", method: "GET", timeout: 30)
-        return try decode(data)
+        return try decode(JobList.self, data).jobs
     }
 
     func complete(jobID: String, idempotencyKey: String, body: Data) async throws -> (job: JobDTO, replayed: Bool) {
         let (data, response) = try await send(
             path: "/v1/jobs/\(jobID)/complete", method: "POST", timeout: 30, body: body,
             headers: ["Content-Type": "application/json", "Idempotency-Key": idempotencyKey])
-        return (try decode(data), response.value(forHTTPHeaderField: "Idempotent-Replayed") == "true")
+        return (try decode(JobEnvelope.self, data).job, response.value(forHTTPHeaderField: "Idempotent-Replayed") == "true")
     }
 
     func uploadPhoto(jobID: String, jpeg: Data) async throws -> PhotoDTO {
         let (data, _) = try await send(
             path: "/v1/jobs/\(jobID)/photo", method: "PUT", timeout: 60, body: jpeg,
             headers: ["Content-Type": "image/jpeg"])
-        return try decode(data)
+        return try decode(PhotoDTO.self, data)
     }
 
-    private func decode<T: Decodable>(_ data: Data) throws -> T {
-        do { return try JSONDecoder().decode(T.self, from: data) } catch {
+    private struct JobList: Decodable { let jobs: [JobDTO] }
+    private struct JobEnvelope: Decodable { let job: JobDTO }
+
+    private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
+        do { return try JSONDecoder().decode(type, from: data) } catch {
             throw APIFailure.transport // e.g. captive-portal HTML: retry, the idempotency key makes it safe
         }
     }
@@ -83,7 +86,8 @@ struct APIClient: APIClienting {
         guard let http = response as? HTTPURLResponse else { throw APIFailure.transport }
         guard (200..<300).contains(http.statusCode) else {
             let code = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
-            let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }.map(TimeInterval.init)
+            // Clamped at the trust boundary: 0 or less would resend at once, and a 429 waits at most the rest of an NZ day.
+            let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }.map { TimeInterval(min(max($0, 1), 90_000)) }
             throw APIFailure.http(status: http.statusCode, code: code, retryAfter: retry)
         }
         return (data, http)
