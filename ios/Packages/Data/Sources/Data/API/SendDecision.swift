@@ -11,7 +11,7 @@ func sendDecision(for failure: APIFailure) -> SendDecision {
         case 401: return .stopAll
         case 409: return .retryAfter(retryAfter ?? 5)
         case 429: return .pauseAllWrites(retryAfter ?? 60)
-        case 500...: return .retryWithBackoff
+        case 408, 425, 500...: return .retryWithBackoff // 408 timed out, 425 too early: both say "send again later"
         default: return .couldNotSend
         }
     }
