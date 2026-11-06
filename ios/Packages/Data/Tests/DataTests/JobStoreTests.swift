@@ -94,6 +94,25 @@ import Testing
         #expect(try await reopened.photoData(jobID: "j1") == jpeg)
     }
 
+    @Test func largePhotoSurvivesReopeningStore() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("jobs.sqlite")
+        let big = Data((0..<204_800).map { UInt8($0 % 251) }) // 200 KB: Core Data keeps it in a file beside the store
+        let info: PhotoInfo?
+        do {
+            let store = try JobStore(storeURL: url)
+            try await store.apply(server: [job()])
+            try await store.savePhoto(jobID: "j1", jpeg: big)
+            info = try await store.jobs()[0].photo
+        }
+        let reopened = try JobStore(storeURL: url)
+        #expect(try await reopened.photoData(jobID: "j1") == big)
+        #expect(info?.bytes == 204_800)
+        #expect(try await reopened.jobs()[0].photo == info)
+    }
+
     @Test func applyServerUsesMergeRule() async throws {
         let store = try JobStore(storeURL: nil)
         try await store.apply(server: [job()])
