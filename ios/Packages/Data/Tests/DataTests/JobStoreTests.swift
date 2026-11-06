@@ -100,17 +100,15 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("jobs.sqlite")
         let big = Data((0..<204_800).map { UInt8($0 % 251) }) // 200 KB: Core Data keeps it in a file beside the store
-        let info: PhotoInfo?
         do {
             let store = try JobStore(storeURL: url)
             try await store.apply(server: [job()])
             try await store.savePhoto(jobID: "j1", jpeg: big)
-            info = try await store.jobs()[0].photo
         }
         let reopened = try JobStore(storeURL: url)
         #expect(try await reopened.photoData(jobID: "j1") == big)
-        #expect(info?.bytes == 204_800)
-        #expect(try await reopened.jobs()[0].photo == info)
+        let hex = SHA256.hash(data: big).map { String(format: "%02x", $0) }.joined()
+        #expect(try await reopened.jobs()[0].photo == PhotoInfo(bytes: 204_800, sha256: hex))
     }
 
     @Test func applyServerUsesMergeRule() async throws {
