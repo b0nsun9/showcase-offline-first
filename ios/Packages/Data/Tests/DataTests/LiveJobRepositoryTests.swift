@@ -7,7 +7,7 @@ import Testing
     let complete1 = FakeAPI.Call.complete(jobID: "job-1", key: "key-job-1", body: sentBody)
     let upload1 = FakeAPI.Call.upload(jobID: "job-1", jpeg: fakeJPEG("job-1"))
 
-    @Test func unauthorizedBlocksUntilSendPending() async throws {
+    @Test func unauthorizedBlocksUntilRefreshSucceeds() async throws {
         let h = try await Harness(jobs: ["job-1"])
         await h.api.failComplete([.http(status: 401, code: "unauthorized", retryAfter: nil)])
         let repo = h.repository()
@@ -15,11 +15,25 @@ import Testing
         let blocked = await repo.snapshot { $0.sendingBlocked }
         #expect(blocked?.jobs.first?.sync == .waiting)
         #expect(try await h.store.dueItems(now: testNow).count == 2)
+
+        await repo.sendPending() // no sign yet that the key works, so nothing more is sent
         #expect(await h.api.calls == [complete1])
+        #expect(await repo.snapshot()?.sendingBlocked == true)
+
+        try await repo.refresh() // the server accepted the key
         await repo.sendPending()
-        let sent = await repo.snapshot()
+        let sent = await repo.snapshot { $0.jobs.first?.sync == .sent }
         #expect(sent?.sendingBlocked == false)
-        #expect(sent?.jobs.first?.sync == .sent)
+    }
+
+    @Test(arguments: [APIFailure.http(status: 401, code: "unauthorized", retryAfter: nil), .missingKey])
+    func refreshAuthFailureStaysBlockedWithEmptyQueue(failure: APIFailure) async throws {
+        let h = try await Harness(jobs: ["job-1"], completed: false) // nothing queued, as on a first launch
+        await h.api.failList(failure)
+        let repo = h.repository()
+        await #expect(throws: failure) { try await repo.refresh() }
+        await repo.sendPending()
+        #expect(await repo.snapshot()?.sendingBlocked == true)
     }
 
     @Test func concurrentSendPendingSendsEachItemOnce() async throws {

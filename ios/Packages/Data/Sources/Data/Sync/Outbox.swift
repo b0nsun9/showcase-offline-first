@@ -127,7 +127,7 @@ actor Outbox {
     private func scheduleWakeUp() async {
         wakeUp?.cancel()
         wakeUp = nil
-        guard !sendingBlocked else { return } // only sendPending() unblocks, and it drains itself
+        guard !sendingBlocked else { return } // only a successful refresh unblocks, and its callers drain next
         var date = try? await store.earliestWait()
         if isPaused { date = pausedUntil } // waits that end during the pause are due when it ends
         guard let date else { return }

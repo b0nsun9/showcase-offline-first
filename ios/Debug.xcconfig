@@ -1,0 +1,4 @@
+API_HOST = dev.api.showcase.bonsung.me
+API_KEY = $(API_KEY_DEV)
+
+#include? "Secrets.xcconfig"
