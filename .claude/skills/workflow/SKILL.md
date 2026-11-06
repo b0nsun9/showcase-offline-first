@@ -1,9 +1,9 @@
 ---
-name: five-stage-workflow
+name: workflow
 description: Use when starting any work in the showcase-offline-first repository, such as a new feature or platform, a plan task, a fix, or a docs or config change, and whenever deciding whether to start the next task.
 ---
 
-# The five-stage workflow
+# Workflow
 
 ## Overview
 

@@ -10,7 +10,7 @@ The app is built through five stages. Every stage leaves a file or a record here
 
 ## Before any work
 
-Invoke the `five-stage-workflow` skill (`.claude/skills/five-stage-workflow/`) before you start any work here, whether a feature, a plan task, a fix, or a docs or config change. Follow it until the work's pull request is merged. It says which stages the work needs, how each task runs, what its pull request must show, and when to stop and wait for the owner.
+Invoke the `workflow` skill before you start any work.
 
 ## The five stages
 
