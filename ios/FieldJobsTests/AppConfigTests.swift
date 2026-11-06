@@ -1,7 +1,7 @@
 @testable import FieldJobs
 import Testing
 
-@MainActor @Suite struct AppConfigTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct AppConfigTests {
     @Test func appConfigReadsInfo() {
         let config = AppConfig(info: ["APIHost": "h", "APIKey": "k"])
         #expect(config.host == "h")

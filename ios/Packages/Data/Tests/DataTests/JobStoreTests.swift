@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import Data
 
-struct JobStoreTests {
+@Suite(.timeLimit(.minutes(1))) struct JobStoreTests {
     let now = Date(timeIntervalSince1970: 1_793_954_520)
     let jpeg = Data((0..<64).map { UInt8($0) })
 

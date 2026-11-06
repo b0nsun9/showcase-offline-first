@@ -3,7 +3,7 @@ import Foundation
 import Testing
 import UIKit
 
-@MainActor @Suite struct PhotoEncoderTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct PhotoEncoderTests {
     /// Random pixels, the worst case for JPEG, at a scale of 1 so points are pixels.
     func noise(side: Int) -> UIImage {
         var bytes = [UInt8](repeating: 0, count: side * side * 4)
